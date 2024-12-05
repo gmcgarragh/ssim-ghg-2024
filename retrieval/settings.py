@@ -5,11 +5,11 @@ import os
 #Default settings
 
 # Where are the ABSCO tables kept?
-ABSCO_TABLE_FOLDER = os.path.join(os.environ['HOME'], 'shared/ssim-ghg-data/retrieval_example')
+ABSCO_TABLE_FOLDER = os.path.join(os.environ['HOME'], 'rob_retrieval/data/retrieval_example')
 
 #0.76 um O2 A-band, 1.60 um weak CO2 band, 1.65 um CH4 band
-band_max_wn = np.array([13190.0,6285.0,6150.0]) #cm^-1
 band_min_wn = np.array([12950.0,6166.0,5995.0]) #cm^-1
+band_max_wn = np.array([13190.0,6285.0,6150.0]) #cm^-1
 
 #Set the spectral resolution (FWHM) to be OCO-2-like
 band_spectral_resolutions = np.array([0.042, 0.076, 0.076]) #nm
@@ -23,6 +23,8 @@ band_molecules.append(["ch4","h2o"])
 #Create a "true" scene
 sza_0 = 30.0 #solar zenith angle, degrees
 sza   = 0.0 #sensor zenith angle, degrees
+phi   = 45.0 #relative azimuth angle, degrees
+
 albedo_true = np.array([0.20, 0.25, 0.26]) #per-band albedo
 
 #Signal-to-noise ratio
