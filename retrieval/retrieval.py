@@ -616,16 +616,18 @@ class ForwardFunction_xrtm:
               tau_aerosol_temp = np.zeros(len(self.band_absco_res_wn[i]))
 
             I, I_albedo, I_aerosol, I_q, I_co2, I_ch4 = self.intensity_xrtm(
-               i,
-               self.band_absco_res_wn[i],
-               self.tau_layer_gas_band[i],
-               self.tau_layer_ray_band[i],
-               self.p_layer > self.height_aerosol,
-               tau_aerosol_temp,
-               ssa_aerosol[i],
-               P_aerosol[i],
-               self.albedo[i],
-               self.band_solar_irradiances[i])
+                i,
+                self.band_absco_res_wn[i],
+                self.tau_layer_gas_band[i],
+                self.tau_layer_ray_band[i],
+                self.p_layer > self.height_aerosol,
+                tau_aerosol_temp,
+                ssa_aerosol[i],
+                P_aerosol[i],
+                self.qext_aerosol[0],
+                self.qext_aerosol[i],
+                self.albedo[i],
+                self.band_solar_irradiances[i])
 
             #Calculate the spectral response function (with and without multiplying by intensity)
             Sc_I_band, Sc_I_band_albedo, Sc_I_band_aerosol, Sc_I_band_q, Sc_I_band_co2, Sc_I_band_ch4 = self.spectral_response_function(self.band_wn_index[i],self.band_absco_res_wn[i],self.sigma_band[i],self.ILS_Gaussian_term[i],I,I_albedo,I_aerosol,I_q,I_co2,I_ch4,self.jacobians)
@@ -728,8 +730,19 @@ class ForwardFunction_xrtm:
                        tau_aerosol,
                        ssa_aerosol,
                        P_aerosol,
+                       qext_aerosol_band_0,
+                       qext_aerosol,
                        albedo,
                        band_solar_irradiance):
+
+#     print(tau_layer_gas_wl.shape)
+#     exit()
+
+      #Dealing with divide by zero issues
+      if qext_aerosol_band_0[0] == 0:
+        qext_scaling = np.zeros((len(qext_aerosol)))
+      else:
+        qext_scaling = qext_aerosol/qext_aerosol_band_0[0]
 
       n_ray_coef = 3
       ray_coef   = self.rayleigh_coefs(rho_rayleigh)
@@ -819,39 +832,38 @@ class ForwardFunction_xrtm:
 
       n_aerosol_layers = aerosol_layer_mask.sum()
 
-      tau_aerosol_d_n_lay = tau_aerosol / n_aerosol_layers
+      tau_aerosol_d_n_lay = tau_aerosol * qext_scaling / n_aerosol_layers
 
+      for j in range(tau_layer_gas_wl.shape[1]):
+          tau_layer_wl[:,j] = tau_layer_gas_wl[:,j] + tau_layer_ray_wl[:,j]
+          if self.tau_aerosol and aerosol_layer_mask[j]:
+              tau_layer_wl[:,j] += tau_aerosol_d_n_lay
 
-      for i in range(tau_layer_gas_wl.shape[1]):
-          tau_layer_wl[:,i] = tau_layer_gas_wl[:,i] + tau_layer_ray_wl[:,i]
-          if self.tau_aerosol and aerosol_layer_mask[i]:
-              tau_layer_wl[:,i] += tau_aerosol_d_n_lay
-
-
-      for i in range(tau_layer_gas_wl.shape[1]):
-          ssa_layer_wl[:,i] = (tau_layer_gas_wl[:,i] * 0. + tau_layer_ray_wl[:,i] * 1.) / tau_layer_wl[:,i]
-          if self.tau_aerosol and aerosol_layer_mask[i]:
-              ssa_layer_wl[:,i] += (tau_aerosol_d_n_lay * ssa_aerosol[i]) / tau_layer_wl[:,i]
-
+      for j in range(tau_layer_gas_wl.shape[1]):
+          ssa_layer_wl[:,j] = (tau_layer_gas_wl[:,j] * 0. + tau_layer_ray_wl[:,j] * 1.) / tau_layer_wl[:,j]
+          if self.tau_aerosol and aerosol_layer_mask[j]:
+              ssa_layer_wl[:,j] += (tau_aerosol_d_n_lay * ssa_aerosol[j]) / tau_layer_wl[:,j]
 
       n_gc_layer = np.zeros((tau_layer_gas_wl.shape[1]), dtype='int32')
 
-      for i in range(tau_layer_gas_wl.shape[1]):
-          n_gc_layer[i] = n_ray_coef
-          if self.tau_aerosol and aerosol_layer_mask[i]:
-              n_gc_layer[i] = np.maximum(n_gc_layer[i], n_aer_coef)
+      for j in range(tau_layer_gas_wl.shape[1]):
+          n_gc_layer[j] = n_ray_coef
+          if self.tau_aerosol and aerosol_layer_mask[j]:
+              n_gc_layer[j] = np.maximum(n_gc_layer[j], n_aer_coef)
 
       gc_layer = np.zeros((tau_layer_gas_wl.shape[0], tau_layer_gas_wl.shape[1], 6, np.amax(n_gc_layer)))
 
-      for i in range(tau_layer_gas_wl.shape[1]):
-          gc_layer[0,i,:,0:n_ray_coef] = ray_coef[:,:]
-          '''
-          ray_coef_wl = np.repeat(ray_coef[None,:], tau_layer_gas_wl.shape[0], axis=0)
-          gc_layer[:, i,:,0:n_ray_coef] = ray_coef_wl * 1. * tau_layer_ray_wl[:,i] / (ssa_layer_wl[:,i] * tau_layer_wl[:,i])
-          '''
-          if self.tau_aerosol and aerosol_layer_mask[i]:
-             gc_layer[0, i,:,0:n_aer_coef] += aer_coef[:,:]
+      for j in range(tau_layer_gas_wl.shape[1]):
+          if not (self.tau_aerosol and aerosol_layer_mask[j]):
+            for i in range(tau_layer_gas_wl.shape[0]):
+              gc_layer[i, j,:,0:n_ray_coef] = tau_layer_ray_wl[i,j] * 1. * ray_coef[:,:] / (tau_layer_ray_wl[i,j] * 1.)
+          else:
+            for i in range(tau_layer_gas_wl.shape[0]):
+              gc_layer[i, j,:,0:n_ray_coef] = tau_layer_ray_wl[i,j] * 1. * ray_coef[:,:] / (tau_layer_ray_wl[i,j] * 1. + tau_aerosol_d_n_lay[i] * ssa_aerosol[j])
 
+          if self.tau_aerosol and aerosol_layer_mask[j]:
+             for i in range(tau_layer_gas_wl.shape[0]):
+                gc_layer[i, j,:,0:n_gc_layer[j]] += tau_aerosol_d_n_lay[i] * ssa_aerosol[j] * aer_coef[:,:] / (tau_layer_ray_wl[i,j] * 1. + tau_aerosol_d_n_lay[i] * ssa_aerosol[j])
 
       I = np.zeros((len(n_chans))) #wn
       I_albedo = np.zeros((len(n_chans))) #wn
